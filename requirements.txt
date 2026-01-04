@@ -4,4 +4,5 @@ moviepy==1.0.3
 imageio==2.33.1
 imageio-ffmpeg
 google-generativeai
+Pillow==9.5.0
 
