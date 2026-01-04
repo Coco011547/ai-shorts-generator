@@ -1,0 +1,5 @@
+requests
+edge-tts
+moviepy
+imageio==2.33.1
+imageio-ffmpeg
