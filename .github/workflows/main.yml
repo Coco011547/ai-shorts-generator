@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       topic:
-        description: 'Video Topic (e.g., Scary Facts)'
+        description: 'Video Topic (e.g., Space Facts)'
         required: true
 
 jobs:
@@ -19,20 +19,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y imagemagick
-          # Fix for ImageMagick policy to allow text
+          # Fix ImageMagick policy
           sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install Libraries
         run: pip install -r requirements.txt
 
       - name: Run Generator
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           VIDEO_TOPIC: ${{ github.event.inputs.topic }}
         run: python generator.py
