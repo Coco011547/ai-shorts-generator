@@ -1,3 +1,12 @@
+import PIL.Image
+
+# FIX FOR PIL ANTIALIAS ERROR
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
+import os
+# ... rest of your imports ...
+
 import os
 import sys
 import requests
