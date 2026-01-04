@@ -1,14 +1,11 @@
-import PIL.Image
-
-# FIX FOR PIL ANTIALIAS ERROR
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
-
-import os
-# ... rest of your imports ...
-
 import os
 import sys
+# --- FIX FOR PIL ANTIALIAS ERROR ---
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+# -----------------------------------
+
 import requests
 import random
 import asyncio
@@ -20,68 +17,73 @@ from moviepy.editor import *
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 
-# Check for keys immediately
-if not GOOGLE_API_KEY:
-    print("❌ ERROR: GOOGLE_API_KEY is missing in Secrets.")
-    sys.exit(1)
-if not PEXELS_API_KEY:
-    print("❌ ERROR: PEXELS_API_KEY is missing in Secrets.")
+if not GOOGLE_API_KEY or not PEXELS_API_KEY:
+    print("❌ ERROR: API Keys are missing in Secrets.")
     sys.exit(1)
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
-def get_script(topic):
-    print(f"📝 Generative Script for: {topic}...")
+def get_script(user_prompt):
+    print(f"📝 Generating Script for prompt: {user_prompt}...")
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        # We ask for something very safe to avoid filters
-        prompt = (
-            f"Write a 2 sentence fun fact about {topic}. "
-            "Plain text only. No formatting. No intro."
+        
+        # This prompt forces Gemini to follow your exact instruction
+        ai_instructions = (
+            f"You are a scriptwriter for YouTube Shorts. "
+            f"Write a narration script based strictly on this instruction: '{user_prompt}'. "
+            "Rules: "
+            "1. Do NOT write scene descriptions (like [Camera pans left]). "
+            "2. Do NOT write 'Narrator:' or 'Voiceover:'. "
+            "3. Write ONLY the raw text to be spoken. "
+            "4. Keep it under 50 words."
         )
-        response = model.generate_content(prompt)
+        
+        response = model.generate_content(ai_instructions)
         
         if not response.text:
-            print("⚠️ Gemini returned empty text. Using fallback.")
-            return "Did you know this topic is fascinating? There is so much to learn about it."
+            return "This is a default script because the AI returned nothing."
             
-        clean_text = response.text.replace("*", "").replace("#", "").strip()
+        # Clean specific formatting that breaks TTS
+        clean_text = response.text.replace("*", "").replace("#", "").replace('"', '').strip()
         print(f"✅ Script: {clean_text}")
         return clean_text
     except Exception as e:
         print(f"❌ Gemini Error: {e}")
-        return "Here is a cool fact. Science is amazing and the world is full of wonders."
+        return f"I could not generate a script for {user_prompt} due to an error."
 
 async def get_voice(text):
     print("🎙️ Generating Voice...")
     try:
+        # Uses a deep male voice (Christopher)
         communicate = edge_tts.Communicate(text, "en-US-ChristopherNeural")
         await communicate.save("voice.mp3")
-        # Verify file exists
-        if os.path.exists("voice.mp3") and os.path.getsize("voice.mp3") > 0:
-            print("✅ Voice generated successfully.")
-        else:
-            print("❌ Voice file is empty!")
-            sys.exit(1)
     except Exception as e:
         print(f"❌ TTS Error: {e}")
         sys.exit(1)
 
-def get_video(topic):
-    print("🎬 Downloading Background Video...")
+def get_video(user_prompt):
+    print("🎬 Finding Background Video...")
     headers = {"Authorization": PEXELS_API_KEY}
-    # Broader search term to ensure results
-    search_term = topic.split()[0] if " " in topic else topic
+    
+    # Extract a simple keyword for Pexels (search engines hate long sentences)
+    # If user types "Scary story about a mirror", we try to search "mirror" or "scary"
+    keywords = user_prompt.split()
+    search_term = keywords[-1] if len(keywords) > 0 else "nature"
+    if len(keywords) > 3:
+         # Try to pick a relevant word (simplistic logic)
+         search_term = keywords[2] 
+    
     url = f"https://api.pexels.com/videos/search?query={search_term}&per_page=5&orientation=portrait"
     
     try:
         r = requests.get(url, headers=headers)
         data = r.json()
         
+        # Fallback to nature if specific search fails
         if not data.get('videos'):
-            print("⚠️ No videos found. Trying 'nature' fallback.")
-            # Fallback to nature if specific topic fails
-            url = "https://api.pexels.com/videos/search?query=nature&per_page=3&orientation=portrait"
+            print(f"⚠️ No videos found for '{search_term}'. Defaulting to 'Abstract'.")
+            url = "https://api.pexels.com/videos/search?query=abstract&per_page=3&orientation=portrait"
             r = requests.get(url, headers=headers)
             data = r.json()
 
@@ -92,7 +94,7 @@ def get_video(topic):
             print("✅ Video downloaded.")
             return True
         else:
-            print("❌ No video could be found at all.")
+            print("❌ No video found.")
             return False
             
     except Exception as e:
@@ -102,29 +104,22 @@ def get_video(topic):
 def make_short():
     print("⚡ Editing Video...")
     try:
-        if not os.path.exists("voice.mp3"):
-            print("❌ Missing voice.mp3")
-            sys.exit(1)
-            
         audio = AudioFileClip("voice.mp3")
         video = VideoFileClip("bg.mp4")
 
-        # 1. Loop video
+        # Loop video
         if video.duration < audio.duration:
             video = video.loop(duration=audio.duration)
         else:
             video = video.subclip(0, audio.duration)
         
-        # 2. Add Audio
         video = video.set_audio(audio)
         
-        # 3. Resize (Safe Crop)
-        # Resize height to 1920 first, keeping aspect ratio
+        # Resize/Crop to 9:16
         video = video.resize(height=1920)
-        # Crop the center 1080
         video = video.crop(x1=0, y1=0, width=1080, height=1920, x_center=1080/2, y_center=1920/2)
 
-        # 4. Write File (With explicit Codecs for GitHub compatibility)
+        # Write File
         video.write_videofile(
             "final_video.mp4", 
             fps=24, 
@@ -133,26 +128,18 @@ def make_short():
             temp_audiofile="temp-audio.m4a",
             remove_temp=True
         )
-        
-        if os.path.exists("final_video.mp4"):
-            print("✅ SUCCESS: final_video.mp4 created!")
-        else:
-            print("❌ Write finished but file is missing.")
-            sys.exit(1)
+        print("✅ SUCCESS! Video Created.")
 
     except Exception as e:
         print(f"❌ MoviePy Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    topic = os.environ.get("VIDEO_TOPIC", "Nature")
-    print(f"🚀 Starting Generator for: {topic}")
+    prompt = os.environ.get("VIDEO_TOPIC", "Nature")
     
-    script = get_script(topic)
+    script = get_script(prompt)
     asyncio.run(get_voice(script))
     
-    if get_video(topic):
+    if get_video(prompt):
         make_short()
-    else:
-        print("❌ Could not download video. Exiting.")
-        sys.exit(1)
+
